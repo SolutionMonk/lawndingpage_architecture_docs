@@ -536,7 +536,7 @@ class Site extends Model
 
     public static function getOrbitalDriver(): string
     {
-        return 'markdown';
+        return 'yaml';
     }
 
     /**
