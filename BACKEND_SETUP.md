@@ -324,6 +324,12 @@ class BlockRegistry
             // Use the block's self-reported type key (single source of truth)
             $type = $className::getType();
 
+            // Validate type format: lowercase alphanumeric and underscores only
+            if (!preg_match('/^[a-z][a-z0-9_]*$/', $type)) {
+                // Skip blocks with invalid type keys (prevents path traversal in views/assets)
+                continue;
+            }
+
             // Store in registry for later lookups
             self::$registry[$type] = $className;
 
@@ -950,7 +956,8 @@ class SiteResource extends Resource
                             'slideshow' => 'Slideshow',
                             'video' => 'Video Background',
                         ])
-                        ->default('static'),
+                        ->default('static')
+                        ->live(), // Required for conditional visibility of background_duration
 
                     Forms\Components\TextInput::make('background_duration')
                         ->label('Slideshow Duration (seconds)')
@@ -971,6 +978,7 @@ class SiteResource extends Resource
                         ->rows(10)
                         ->helperText('⚠️ Owner-only field. Use Content-Security-Policy headers to restrict inline styles in production.')
                         ->visible(fn () => auth()->user()?->hasRole('Owner') ?? false)
+                        ->dehydrated(fn () => auth()->user()?->hasRole('Owner') ?? false)
                         ->placeholder('/* Your custom CSS here */')
                         ->hint('Security: Consider using a CSS parser library or CSP headers to restrict dangerous properties.')
                         ->hintIcon('heroicon-o-exclamation-triangle')
@@ -1063,7 +1071,18 @@ class ManageSite extends Page implements HasForms
     public function save(): void
     {
         $site = Site::first();
-        $site->update($this->form->getState());
+
+        // Re-authorize in case user was demoted during session
+        abort_unless(auth()->user()?->can('update', $site), 403);
+
+        $data = $this->form->getState();
+
+        // Defense-in-depth: strip custom_css for non-Owners
+        if (!auth()->user()?->hasRole('Owner')) {
+            unset($data['custom_css']);
+        }
+
+        $site->update($data);
 
         Notification::make()
             ->title('Site settings saved')
@@ -1560,7 +1579,16 @@ php artisan blocks:detect-orphaned
 
 Before deploying to production:
 
-### 1. Switch to Redis for Cache Tagging
+### 1. Disable Debug Mode
+Update `.env`:
+```env
+APP_ENV=production
+APP_DEBUG=false
+```
+
+**Critical:** Debug mode exposes full stack traces with file paths, environment variables, and database credentials. Always set `APP_DEBUG=false` in production.
+
+### 2. Switch to Redis for Cache Tagging
 Update `.env`:
 ```env
 CACHE_DRIVER=redis
@@ -1583,7 +1611,7 @@ brew services start redis
 redis-cli ping  # Should return "PONG"
 ```
 
-### 2. Run Artisan Optimizations
+### 3. Run Artisan Optimizations
 ```bash
 php artisan config:cache
 php artisan route:cache
@@ -1591,13 +1619,13 @@ php artisan view:cache
 composer install --optimize-autoloader --no-dev
 ```
 
-### 3. Set Permissions
+### 4. Set Permissions
 ```bash
 chmod -R 775 storage bootstrap/cache
 chown -R www-data:www-data storage bootstrap/cache
 ```
 
-### 4. Enable OPcache
+### 5. Enable OPcache
 In `php.ini`:
 ```ini
 opcache.enable=1
@@ -1606,7 +1634,7 @@ opcache.max_accelerated_files=10000
 opcache.revalidate_freq=2
 ```
 
-### 5. Configure Content-Security-Policy Headers
+### 6. Configure Content-Security-Policy Headers
 To mitigate XSS risks from custom CSS, add CSP headers in `public/.htaccess` or your web server config:
 
 ```apache
@@ -1840,5 +1868,3 @@ You've successfully implemented:
 15. ✅ **ManageSite extends `Filament\Resources\Pages\Page` (proper resource context)**
 16. ✅ **Schema extracted to static `siteSchema()` method (clean reuse pattern)**
 17. ✅ **Static registry warning added for long-running processes**
-
-The architecture is now ready for frontend integration and follows Laravel/Filament best practices with all security, architectural, and dependency concerns addressed.
