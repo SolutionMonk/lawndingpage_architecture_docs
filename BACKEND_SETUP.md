@@ -3,20 +3,87 @@
 
 This guide provides the exact step-by-step instructions for a backend developer to implement the core architecture of LawndingPage. It is designed to be production-ready, security-conscious, and maintainable according to Laravel and Filament best practices.
 
-> **Note:** After completing this setup, refer to `Docs/FRONTEND_SETUP.md` to build the public-facing Blade architecture.
+> **Note:** After completing this setup, refer to `FRONTEND_WORKFLOW.md` to build block frontends.
 >
-> **Reviewed by:** Claude Opus (2025-02-20) — All critical issues addressed (4 review cycles).
+> **Reviewed by:** Claude Sonnet 4.5 (2026-02-21) — Filament v5.2 compatibility verified through live implementation.
 >
-> **Cycle 3 Fixes:**
-> - ManageSite converted to standalone Page with InteractsWithForms (fixes rendering issue)
-> - BlockRegistry extracted to Services layer (eliminates model-to-resource coupling)
-> - Package versions updated (Orbit ^1.4.1, Filament Peek ^4.0)
+> **Latest Updates (2026-02-21):**
+> - **FIXED:** Updated to Laravel 12 and Spatie Permission 7.2 (current versions)
+> - **FIXED:** HeroBlock example now includes `->disk('public')` and `->multiple(false)`
+> - **FIXED:** CACHE_DRIVER → CACHE_STORE to match Laravel 12 .env.example
+> - **ADDED:** UserSeeder option in Phase 9 (automated role/user setup)
+> - **ADDED:** DDEV support in Phase 10 testing instructions
+> - **ADDED:** Prerequisites section for new developers
+> - **ADDED:** Verification commands throughout all phases
 >
-> **Cycle 4 Fixes:**
-> - Phase ordering fixed (BlockContract before BlockRegistry)
-> - ManageSite uses `Filament\Resources\Pages\Page` for proper resource context
-> - Schema extracted to static `siteSchema()` method (avoids fragile form()->getSchema() pattern)
-> - Static registry warning added for long-running processes (Octane/Swoole/FrankenPHP)
+> **Cycle 5 Fixes (2026-02-20):**
+> - **CRITICAL:** Added comprehensive Filament v5.2 breaking changes section with 10 common pitfalls
+> - **FIXED:** Resources use `form()` not `schema()` (prevents NULL constraint violations)
+> - **FIXED:** Table actions import from `Filament\Actions` not `Filament\Tables\Actions`
+> - **FIXED:** Orbit schemas require `$table->id()` as first column
+> - **FIXED:** ManageSite uses `$this->form->fill()` and `->getState()` (prevents FileUpload errors)
+> - **FIXED:** FileUpload components require `->multiple(false)` for single files
+> - **FIXED:** Resource authorization methods must use `Model` type hints not specific models
+> - **FIXED:** BlockResource now includes all 5 authorization methods (canViewAny, canCreate, canEdit, canDelete, canReorder)
+> - **ADDED:** 6 new troubleshooting entries for common runtime and permission errors
+> - All code examples verified against working Filament v5.2.2 implementation
+>
+> **Previous Cycles:**
+> - Cycle 4: Phase ordering, resource context, schema reusability
+> - Cycle 3: InteractsWithSchemas, BlockRegistry service extraction
+> - Cycles 1-2: Initial architecture and security review
+
+---
+
+## Prerequisites
+
+Before starting this guide, ensure you have:
+
+### Required Software
+
+1. ✅ **PHP 8.2+** installed
+   ```bash
+   php -v
+   # Expected: PHP 8.2.x or higher
+   ```
+
+2. ✅ **Composer 2.x** installed
+   ```bash
+   composer --version
+   # Expected: Composer version 2.x
+   ```
+
+3. ✅ **SQLite** support enabled in PHP
+   ```bash
+   php -m | grep sqlite
+   # Expected output: pdo_sqlite, sqlite3
+   ```
+
+4. ✅ **Git** for version control
+   ```bash
+   git --version
+   # Expected: git version 2.x or higher
+   ```
+
+### Required Knowledge
+
+- ✅ **Laravel basics** (routing, models, migrations, Blade)
+- ✅ **PHP OOP** (classes, interfaces, traits, namespaces)
+- ✅ **Composer** package management
+- ✅ **Terminal/command line** proficiency
+
+### Development Environment Options
+
+**Option A: DDEV (Recommended for new developers)**
+- Provides complete Docker-based environment
+- Includes PHP, database, web server pre-configured
+- See `GETTING_STARTED.md` for DDEV setup
+- **If using DDEV:** Complete `GETTING_STARTED.md` first, then return here
+
+**Option B: Local PHP installation**
+- Requires manual PHP/Composer/SQLite setup
+- More control but more complex
+- Continue with Phase 0 below
 
 ---
 
@@ -24,42 +91,78 @@ This guide provides the exact step-by-step instructions for a backend developer 
 
 ### 1. Create the Laravel Project
 ```bash
-composer create-project laravel/laravel:^11.0 lawndingpage
+composer create-project laravel/laravel:^12.0 lawndingpage
 cd lawndingpage
 ```
 
+*Expected output:* Composer downloads Laravel and its dependencies, creates project structure.
+
+**Verify:**
+```bash
+ls -la
+# Expected: Directories like app/, config/, database/, resources/, routes/
+
+php artisan --version
+# Expected: Laravel Framework 12.x.x
+```
+
 ### 2. Configure Environment
-Update your `.env` file with these critical settings:
-```env
-APP_NAME=LawndingPage
-APP_ENV=local
-APP_DEBUG=true
-APP_TIMEZONE=UTC
-APP_URL=http://localhost:8000
+Laravel created a `.env` file with default settings. We need to customize it for LawndingPage.
 
-# SQLite for authentication only
-DB_CONNECTION=sqlite
+**Open `.env` in your text editor:**
+```bash
+# Use your preferred editor:
+nano .env
+# OR
+vim .env
+# OR
+code .env  # VS Code
+```
 
-# Cache driver (use 'file' for local, 'redis' for production with tagging)
-CACHE_DRIVER=file
+**Find and REPLACE these lines** (do NOT add duplicates - each variable appears only once in .env):
 
-# For production, switch to Redis for cache tagging support:
-# CACHE_DRIVER=redis
-# REDIS_HOST=127.0.0.1
-# REDIS_PASSWORD=null
-# REDIS_PORT=6379
+| Find This | Replace With | Why |
+|-----------|--------------|-----|
+| `APP_NAME=Laravel` | `APP_NAME=LawndingPage` | Project name |
+| `DB_CONNECTION=sqlite` | Keep as `sqlite` | Already correct ✓ |
+| `CACHE_STORE=database` | `CACHE_STORE=file` | Simpler for development |
+| `SESSION_DRIVER=database` | `SESSION_DRIVER=file` | No extra DB queries |
+| `QUEUE_CONNECTION=database` | `QUEUE_CONNECTION=sync` | Jobs run immediately |
 
-# File driver for sessions (single-instance architecture)
-SESSION_DRIVER=file
+**Save the file** (in nano: Ctrl+O, Enter, Ctrl+X)
 
-# Queue driver (use 'sync' for local, 'redis' for production)
-QUEUE_CONNECTION=sync
+**Generate Application Key** (REQUIRED for encryption/sessions):
+```bash
+php artisan key:generate
+```
+
+*Expected output:* `Application key set successfully.`
+
+**Verify .env configuration:**
+```bash
+grep APP_KEY .env
+# Expected: APP_KEY=base64:some_long_random_string
+
+grep CACHE_STORE .env
+# Expected: CACHE_STORE=file
+
+grep SESSION_DRIVER .env
+# Expected: SESSION_DRIVER=file
 ```
 
 ### 3. Create SQLite Database
 ```bash
 touch database/database.sqlite
 php artisan migrate
+```
+
+**Verify database was created and migrated:**
+```bash
+ls -la database/database.sqlite
+# Expected: File exists with non-zero size
+
+sqlite3 database/database.sqlite "SELECT name FROM sqlite_master WHERE type='table';"
+# Expected output: migrations, users, password_reset_tokens, sessions, cache, jobs, etc.
 ```
 
 ---
@@ -77,7 +180,143 @@ php artisan filament:install --panels
 
 *Expected output: Creates `app/Filament/` directory and admin panel at `/admin`.*
 
-**Note:** Filament v5 is the current stable release (v5.2.1+). The v5 bump is primarily for Livewire v4 compatibility, not breaking API changes.
+**Verify Filament installed correctly:**
+```bash
+ls -la app/Filament/
+# Expected: Pages/, Resources/, Widgets/ directories (may be empty initially)
+
+php artisan route:list | grep admin
+# Expected: Multiple /admin/* routes listed (livewire, login, dashboard, etc.)
+```
+
+**⚠️ CRITICAL: Filament v5.2 Breaking Changes & Common Pitfalls**
+
+This guide uses **Filament v5.2+** which has significant API changes from v3/v4. **Follow these rules exactly to avoid errors:**
+
+#### 1. Navigation Properties → Methods
+```php
+// ❌ OLD (v3/v4)
+protected static ?string $navigationIcon = 'heroicon-o-cog-6-tooth';
+
+// ✅ NEW (v5.2)
+public static function getNavigationIcon(): ?string {
+    return 'heroicon-o-cog-6-tooth';
+}
+```
+
+#### 2. Resources: Use `form()` NOT `schema()`
+```php
+// ❌ WRONG - Will cause NULL constraint violations
+public static function schema(Schema $schema): Schema
+
+// ✅ CORRECT - Resources still use form() method
+public static function form(Schema $schema): Schema
+```
+
+#### 3. Table Actions: Import from `Filament\Actions`
+```php
+// ❌ WRONG - Class not found error
+use Filament\Tables\Actions\EditAction;
+
+// ✅ CORRECT - Actions moved to top-level namespace
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;
+```
+
+#### 4. Component Namespace Split
+```php
+// ✅ CORRECT - Two separate imports
+use Filament\Forms\Components as Forms;    // Fields: TextInput, Select, Toggle, FileUpload
+use Filament\Schemas\Components as Schemas; // Layout: Section, Group, Grid, Text
+
+// Usage:
+Schemas\Section::make()->schema([
+    Forms\TextInput::make('title'),
+])
+```
+
+#### 5. Pages: Use InteractsWithSchemas
+```php
+// ❌ OLD
+use Filament\Forms\Concerns\InteractsWithForms;
+
+// ✅ NEW
+use Filament\Schemas\Concerns\InteractsWithSchemas;
+use Filament\Schemas\Contracts\HasSchemas;
+
+class ManageSite extends Page implements HasSchemas {
+    use InteractsWithSchemas;
+}
+```
+
+#### 6. Form Data Handling: Use `$this->form->fill()` and `->getState()`
+```php
+// ❌ WRONG - Causes FileUpload errors
+public function mount() {
+    $this->data = $this->record->toArray();
+}
+
+// ✅ CORRECT - Proper Filament method
+public function mount() {
+    $this->form->fill($this->record->toArray());
+}
+
+// ❌ WRONG - Direct data access
+$this->record->update($this->data);
+
+// ✅ CORRECT - Get state from form
+$data = $this->form->getState();
+$this->record->update($data);
+```
+
+#### 7. FileUpload: Must specify `->disk('public')` and `->multiple(false)`
+```php
+// ✅ CORRECT - Explicitly set disk and single file mode
+Forms\FileUpload::make('logo_path')
+    ->image()
+    ->disk('public')       // CRITICAL: v5.2 defaults to 'private' disk
+    ->directory('site')
+    ->multiple(false)      // CRITICAL: Prevents array storage issues
+```
+**Why:** Filament v5.2 changed the default upload disk from `public` to `private`. Without `->disk('public')`, uploaded files go to `storage/app/private/` instead of `storage/app/public/`, making them inaccessible via the web.
+
+#### 8. Closures: Remove Type Hints
+```php
+// ❌ WRONG
+->visible(fn (Forms\Get $get) => $get('mode') === 'slideshow')
+
+// ✅ CORRECT
+->visible(fn ($get) => $get('mode') === 'slideshow')
+```
+
+#### 9. View Property: Non-Static
+```php
+// ❌ WRONG
+protected static string $view = 'filament.pages.manage-site';
+
+// ✅ CORRECT
+protected string $view = 'filament.pages.manage-site';
+```
+
+#### 10. Resource Authorization Methods: Use `Model` Type Hints
+```php
+// ❌ WRONG - Type compatibility error
+public static function canEdit(Block $record): bool
+
+// ✅ CORRECT - Match parent class signature
+public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+{
+    return auth()->user()?->can('update', $record) ?? false;
+}
+
+// CRITICAL: All Resources must define these methods for proper authorization:
+public static function canViewAny(): bool
+public static function canCreate(): bool
+public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+public static function canReorder(): bool  // For models with reorderable tables
+```
 
 ### 2. Install Orbit (Flat-File Driver)
 Orbit hijacks Eloquent to use flat-files instead of SQL for content storage.
@@ -91,9 +330,15 @@ php artisan vendor:publish --tag=orbit-config
 ### 3. Install Spatie Permission (Multi-User Roles)
 Required for Owner/Editor role separation. We use **manual role-based auth** without Filament Shield to avoid complexity.
 ```bash
-composer require spatie/laravel-permission:"^6.0"
+composer require spatie/laravel-permission:"^7.2"
 php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"
 php artisan migrate
+```
+
+*Verify: Check that migrations created `roles` and `permissions` tables:*
+```bash
+sqlite3 database/database.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%role%';"
+# Expected output: roles, model_has_roles, role_has_permissions, permissions
 ```
 
 ### 4. Add HasRoles Trait to User Model
@@ -146,16 +391,16 @@ After all installations, your `composer.json` should contain:
 {
     "require": {
         "php": "^8.2",
-        "laravel/framework": "^11.0",
+        "laravel/framework": "^12.0",
         "filament/filament": "^5.0",
         "ryangjchandler/orbit": "^1.4.1",
-        "spatie/laravel-permission": "^6.0",
+        "spatie/laravel-permission": "^7.2",
         "pboivin/filament-peek": "^4.0"
     },
     "require-dev": {
-        "laravel/pint": "^1.13",
-        "nunomaduro/collision": "^8.1",
-        "phpunit/phpunit": "^11.0"
+        "laravel/pint": "^1.24",
+        "nunomaduro/collision": "^8.6",
+        "phpunit/phpunit": "^11.5"
     }
 }
 ```
@@ -165,6 +410,17 @@ After all installations, your `composer.json` should contain:
 mkdir -p storage/orbit/sites
 mkdir -p storage/orbit/blocks
 php artisan storage:link
+```
+
+**Verify directories and symlink created correctly:**
+```bash
+ls -la storage/orbit/
+# Expected: drwxr-xr-x sites/ and blocks/ directories
+
+# CRITICAL: Verify storage symlink is RELATIVE not absolute
+ls -la public/storage
+# ✅ CORRECT: public/storage -> ../storage/app/public
+# ❌ WRONG: public/storage -> /var/www/html/storage/app/public (absolute path breaks portability)
 ```
 
 ---
@@ -382,6 +638,24 @@ class BlockRegistry
 
 ## Phase 4: Model Observers
 
+**⚠️ IMPORTANT: Phase Execution Order**
+
+This guide lists phases in **conceptual order** (how they relate to each other), not necessarily **execution order**.
+
+**For Phase 4 (Observers):**
+1. ✅ **Read this phase now** to understand what observers do
+2. ⏸️ **WAIT - Do Phase 5 first** (create Site and Block models)
+3. ✅ **Then return here** and register observers in AppServiceProvider
+
+**Why this order?**
+- Observers reference models (`Site::observe(...)`)
+- Models must exist before being observed
+- Trying to register observers before models exist will cause "Class not found" errors
+
+**Quick reminder:** After completing Phase 5, return here to complete the `AppServiceProvider::boot()` registration.
+
+---
+
 ### 1. Create Model Observers
 **Create:** `app/Observers/SiteObserver.php`
 ```php
@@ -536,7 +810,7 @@ class Site extends Model
 
     public static function getOrbitalDriver(): string
     {
-        return 'markdown';
+        return 'yaml'; // Orbit supports 'yaml' or 'json', not 'markdown'
     }
 
     /**
@@ -545,6 +819,7 @@ class Site extends Model
      */
     public static function schema(Blueprint $table): void
     {
+        $table->id(); // CRITICAL: Orbit requires id column
         $table->string('title')->nullable();
         $table->string('subtitle')->nullable();
         $table->string('logo_path')->nullable();
@@ -600,7 +875,7 @@ class Block extends Model
 
     public static function getOrbitalDriver(): string
     {
-        return 'markdown';
+        return 'yaml'; // Orbit supports 'yaml' or 'json', not 'markdown'
     }
 
     /**
@@ -608,6 +883,7 @@ class Block extends Model
      */
     public static function schema(Blueprint $table): void
     {
+        $table->id(); // CRITICAL: Orbit requires id column
         $table->string('type');
         $table->json('data')->nullable();
         $table->integer('order')->default(0);
@@ -874,13 +1150,24 @@ class HeroBlock implements BlockContract
             FileUpload::make('background_image')
                 ->label('Background Image')
                 ->image()
+                ->disk('public')        // CRITICAL: v5.2 defaults to 'private'
                 ->directory('hero-backgrounds')
+                ->multiple(false)       // CRITICAL: Single file mode
                 ->maxSize(2048)
                 ->imageEditor(),
         ];
     }
 }
 ```
+
+**What's Next: Frontend Development**
+
+After creating a Block PHP class, you need to create the corresponding frontend files:
+- **Blade template:** `resources/views/blocks/{type}.blade.php` (required)
+- **CSS styling:** `public/css/blocks/{type}.css` (highly recommended)
+- **JavaScript:** `public/js/blocks/{type}.js` (optional, for interactivity)
+
+See `FRONTEND_WORKFLOW.md` for complete step-by-step instructions on building block frontends with examples.
 
 ---
 
@@ -889,67 +1176,82 @@ class HeroBlock implements BlockContract
 Resources are the admin panel interfaces that manage our Orbit models.
 
 ### 1. The Site Resource (Global Settings)
-This is a standalone page for the singleton record using InteractsWithForms (avoiding ManageRecords which renders a table).
+This is a standalone page for the singleton record using InteractsWithSchemas (avoiding ManageRecords which renders a table).
 
 **Generate:**
 ```bash
 php artisan make:filament-resource Site --simple
 ```
 
-**Edit:** `app/Filament/Resources/SiteResource.php`
+**Edit:** `app/Filament/Resources/Sites/SiteResource.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources;
+namespace App\Filament\Resources\Sites;
 
-use App\Filament\Resources\SiteResource\Pages;
+use App\Filament\Resources\Sites\SiteResource\Pages;
 use App\Models\Site;
-use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Forms\Components as Forms;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components as Schemas;
+use Filament\Schemas\Schema;
 
 class SiteResource extends Resource
 {
     protected static ?string $model = Site::class;
-    protected static ?string $navigationIcon = 'heroicon-o-cog-6-tooth';
-    protected static ?string $navigationLabel = 'Site Settings';
-    protected static ?int $navigationSort = 99;
+
+    public static function getNavigationIcon(): ?string
+    {
+        return 'heroicon-o-cog-6-tooth';
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return 'Site Settings';
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return 99;
+    }
 
     /**
      * Extract schema into a static method for reuse in both Resource and Page.
-     * This avoids the fragile pattern of calling form()->getSchema().
+     * This avoids duplication and allows reuse in both Resource and Page.
      */
     public static function siteSchema(): array
     {
         return [
-            Forms\Components\Section::make('Site Identity')
+            Schemas\Section::make('Site Identity')
                 ->description('Basic information about your website')
                 ->schema([
-                    Forms\Components\TextInput::make('title')
+                    Forms\TextInput::make('title')
                         ->label('Site Title')
                         ->required()
                         ->maxLength(100),
 
-                    Forms\Components\TextInput::make('subtitle')
+                    Forms\TextInput::make('subtitle')
                         ->label('Subtitle / Tagline')
                         ->maxLength(200),
 
-                    Forms\Components\FileUpload::make('logo_path')
+                    Forms\FileUpload::make('logo_path')
                         ->label('Logo')
                         ->image()
+                        ->disk('public')  // CRITICAL: v5.2 defaults to 'private'
                         ->directory('site')
                         ->imageEditor()
                         ->maxSize(1024)
+                        ->multiple(false) // CRITICAL: Single file mode
                         ->helperText('Recommended: PNG with transparent background, 200x200px'),
                 ])
                 ->columns(2),
 
-            Forms\Components\Section::make('Background Settings')
+            Schemas\Section::make('Background Settings')
                 ->description('Configure the background slideshow behavior')
                 ->schema([
-                    Forms\Components\Select::make('background_mode')
+                    Forms\Select::make('background_mode')
                         ->label('Background Mode')
                         ->options([
                             'static' => 'Static Image',
@@ -959,21 +1261,21 @@ class SiteResource extends Resource
                         ->default('static')
                         ->live(), // Required for conditional visibility of background_duration
 
-                    Forms\Components\TextInput::make('background_duration')
+                    Forms\TextInput::make('background_duration')
                         ->label('Slideshow Duration (seconds)')
                         ->numeric()
                         ->minValue(3)
                         ->maxValue(60)
                         ->default(10)
-                        ->visible(fn (Forms\Get $get) => $get('background_mode') === 'slideshow'),
+                        ->visible(fn ($get) => $get('background_mode') === 'slideshow'),
                 ])
                 ->columns(2)
                 ->collapsed(),
 
-            Forms\Components\Section::make('Advanced Customization')
+            Schemas\Section::make('Advanced Customization')
                 ->description('Owner-only settings for advanced users')
                 ->schema([
-                    Forms\Components\Textarea::make('custom_css')
+                    Forms\Textarea::make('custom_css')
                         ->label('Custom CSS')
                         ->rows(10)
                         ->helperText('⚠️ Owner-only field. Use Content-Security-Policy headers to restrict inline styles in production.')
@@ -989,9 +1291,9 @@ class SiteResource extends Resource
         ];
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form->schema(static::siteSchema());
+        return $schema->components(static::siteSchema());
     }
 
     public static function getPages(): array
@@ -1009,38 +1311,39 @@ class SiteResource extends Resource
 }
 ```
 
-**Edit:** `app/Filament/Resources/SiteResource/Pages/ManageSite.php`
+**Edit:** `app/Filament/Resources/Sites/SiteResource/Pages/ManageSite.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources\SiteResource\Pages;
+namespace App\Filament\Resources\Sites\SiteResource\Pages;
 
-use App\Filament\Resources\SiteResource;
+use App\Filament\Resources\Sites\SiteResource;
 use App\Models\Site;
 use Filament\Actions\Action;
-use Filament\Forms\Concerns\InteractsWithForms;
-use Filament\Forms\Contracts\HasForms;
-use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
+use Filament\Schemas\Concerns\InteractsWithSchemas;
+use Filament\Schemas\Contracts\HasSchemas;
+use Filament\Schemas\Schema;
 
-class ManageSite extends Page implements HasForms
+class ManageSite extends Page implements HasSchemas
 {
-    use InteractsWithForms;
+    use InteractsWithSchemas;
 
     protected static string $resource = SiteResource::class;
-    protected static string $view = 'filament.resources.site-resource.pages.manage-site';
+    protected string $view = 'filament.resources.sites.site-resource.pages.manage-site';
 
     public ?array $data = [];
+    public Site $record;
 
     /**
      * Load the singleton Site record, check authorization, and populate the form.
      */
     public function mount(): void
     {
-        $site = Site::firstOrCreate(
+        $this->record = Site::firstOrCreate(
             [],
             [
                 'title' => config('app.name', 'LawndingPage'),
@@ -1048,21 +1351,22 @@ class ManageSite extends Page implements HasForms
             ]
         );
 
-        abort_unless(auth()->user()?->can('update', $site), 403);
+        abort_unless(auth()->user()?->can('update', $this->record), 403);
 
-        $this->form->fill($site->toArray());
+        // CRITICAL: Use form->fill() not direct $this->data assignment
+        // This ensures Filament properly handles field transformations (e.g., FileUpload)
+        $this->form->fill($this->record->toArray());
     }
 
     /**
-     * Define the form using the static schema method.
-     * This avoids the fragile pattern of round-tripping through form()->getSchema().
+     * Define the form schema.
      */
-    public function form(Form $form): Form
+    public function form(Schema $schema): Schema
     {
-        return $form
-            ->schema(SiteResource::siteSchema())
+        return $schema
+            ->components(SiteResource::siteSchema())
             ->statePath('data')
-            ->model(Site::first());
+            ->model($this->record);
     }
 
     /**
@@ -1070,11 +1374,10 @@ class ManageSite extends Page implements HasForms
      */
     public function save(): void
     {
-        $site = Site::first();
-
         // Re-authorize in case user was demoted during session
-        abort_unless(auth()->user()?->can('update', $site), 403);
+        abort_unless(auth()->user()?->can('update', $this->record), 403);
 
+        // CRITICAL: Get form state using proper Filament method
         $data = $this->form->getState();
 
         // Defense-in-depth: strip custom_css for non-Owners
@@ -1082,7 +1385,7 @@ class ManageSite extends Page implements HasForms
             unset($data['custom_css']);
         }
 
-        $site->update($data);
+        $this->record->update($data);
 
         Notification::make()
             ->title('Site settings saved')
@@ -1104,18 +1407,20 @@ class ManageSite extends Page implements HasForms
 }
 ```
 
-**Create:** `resources/views/filament/resources/site-resource/pages/manage-site.blade.php`
+**Create:** `resources/views/filament/resources/sites/site-resource/pages/manage-site.blade.php`
 ```blade
 <x-filament-panels::page>
     <form wire:submit="save">
         {{ $this->form }}
 
-        <div class="mt-6">
+        <div class="fi-form-actions">
             @foreach ($this->getFormActions() as $action)
                 {{ $action }}
             @endforeach
         </div>
     </form>
+
+    <x-filament-actions::modals />
 </x-filament-panels::page>
 ```
 
@@ -1140,42 +1445,59 @@ This file uses the BlockRegistry service to handle block discovery and type reso
 php artisan make:filament-resource Block
 ```
 
-**Edit:** `app/Filament/Resources/BlockResource.php`
+**Edit:** `app/Filament/Resources/Blocks/BlockResource.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources;
+namespace App\Filament\Resources\Blocks;
 
-use App\Filament\Resources\BlockResource\Pages;
+use App\Filament\Resources\Blocks\BlockResource\Pages;
 use App\Models\Block;
 use App\Services\BlockRegistry;
-use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Forms\Components as Forms;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components as Schemas;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 
 class BlockResource extends Resource
 {
     protected static ?string $model = Block::class;
-    protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
-    protected static ?string $navigationLabel = 'Blocks';
-    protected static ?int $navigationSort = 1;
 
-    public static function form(Form $form): Form
+    public static function getNavigationIcon(): ?string
     {
-        return $form->schema([
-            Forms\Components\Section::make('Block Configuration')
+        return 'heroicon-o-squares-2x2';
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return 'Blocks';
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return 1;
+    }
+
+    public static function form(Schema $schema): Schema
+    {
+        return $schema->components([
+            Schemas\Section::make('Block Configuration')
                 ->description('Select the block type and configure visibility')
                 ->schema([
                     // 1. The Auto-Discovered Type Selector
-                    Forms\Components\Select::make('type')
+                    Forms\Select::make('type')
                         ->label('Block Type')
                         ->options(BlockRegistry::discover())
                         ->required()
-                        ->live() // Filament v5 uses 'live' (not 'reactive')
+                        ->live() // Makes field reactive to update other fields
                         ->searchable()
                         // CRITICAL: Block types are immutable once created!
                         ->disabled(fn (string $operation): bool => $operation === 'edit')
@@ -1184,11 +1506,11 @@ class BlockResource extends Resource
                                 ? '⚠️ Block type cannot be changed after creation. Delete and recreate if needed.'
                                 : null
                         )
-                        ->afterStateUpdated(fn ($state, Forms\Set $set) =>
+                        ->afterStateUpdated(fn ($state, $set) =>
                             $set('data', []) // Clear old data on type change during creation
                         ),
 
-                    Forms\Components\Toggle::make('is_visible')
+                    Forms\Toggle::make('is_visible')
                         ->label('Visible on Public Site')
                         ->default(true)
                         ->helperText('Hidden blocks remain editable in admin but do not appear on the website'),
@@ -1196,14 +1518,14 @@ class BlockResource extends Resource
                 ->columns(2),
 
             // 2. The Dynamic Data Section
-            Forms\Components\Section::make('Block Content')
-                ->description(fn (Forms\Get $get) =>
+            Schemas\Section::make('Block Content')
+                ->description(fn ($get) =>
                     $get('type')
                         ? 'Configure the fields for this ' . (BlockRegistry::getLabel($get('type')) ?? 'block')
                         : 'Select a block type to configure its fields'
                 )
-                ->schema(fn (Forms\Get $get) => self::getDynamicSchema($get('type')))
-                ->visible(fn (Forms\Get $get) => !empty($get('type'))),
+                ->schema(fn ($get) => self::getDynamicSchema($get('type')))
+                ->visible(fn ($get) => !empty($get('type'))),
         ]);
     }
 
@@ -1255,12 +1577,12 @@ class BlockResource extends Resource
                     ->falseLabel('Hidden only'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -1288,13 +1610,13 @@ class BlockResource extends Resource
 
         if (!$blockClass || !method_exists($blockClass, 'getSchema')) {
             return [
-                Forms\Components\Placeholder::make('error')
+                Schemas\Text::make('error')
                     ->content('⚠️ Block class not found or missing getSchema() method. This block may be orphaned.'),
             ];
         }
 
         return [
-            Forms\Components\Group::make($blockClass::getSchema())
+            Schemas\Group::make($blockClass::getSchema())
                 ->statePath('data')
                 ->columnSpanFull(),
         ];
@@ -1306,18 +1628,38 @@ class BlockResource extends Resource
     {
         return auth()->user()?->can('viewAny', Block::class) ?? false;
     }
+
+    public static function canCreate(): bool
+    {
+        return auth()->user()?->can('create', Block::class) ?? false;
+    }
+
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return auth()->user()?->can('update', $record) ?? false;
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        return auth()->user()?->can('delete', $record) ?? false;
+    }
+
+    public static function canReorder(): bool
+    {
+        return auth()->user()?->can('reorder', Block::class) ?? false;
+    }
 }
 ```
 
-**Edit:** `app/Filament/Resources/BlockResource/Pages/CreateBlock.php`
+**Edit:** `app/Filament/Resources/Blocks/BlockResource/Pages/CreateBlock.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources\BlockResource\Pages;
+namespace App\Filament\Resources\Blocks\BlockResource\Pages;
 
-use App\Filament\Resources\BlockResource;
+use App\Filament\Resources\Blocks\BlockResource;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateBlock extends CreateRecord
@@ -1331,15 +1673,15 @@ class CreateBlock extends CreateRecord
 }
 ```
 
-**Edit:** `app/Filament/Resources/BlockResource/Pages/EditBlock.php`
+**Edit:** `app/Filament/Resources/Blocks/BlockResource/Pages/EditBlock.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources\BlockResource\Pages;
+namespace App\Filament\Resources\Blocks\BlockResource\Pages;
 
-use App\Filament\Resources\BlockResource;
+use App\Filament\Resources\Blocks\BlockResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 
@@ -1361,15 +1703,15 @@ class EditBlock extends EditRecord
 }
 ```
 
-**Edit:** `app/Filament/Resources/BlockResource/Pages/ListBlocks.php`
+**Edit:** `app/Filament/Resources/Blocks/BlockResource/Pages/ListBlocks.php`
 ```php
 <?php
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources\BlockResource\Pages;
+namespace App\Filament\Resources\Blocks\BlockResource\Pages;
 
-use App\Filament\Resources\BlockResource;
+use App\Filament\Resources\Blocks\BlockResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 
@@ -1397,7 +1739,34 @@ class ListBlocks extends ListRecords
 
 Now that all resources are in place, set up roles and create your first admin.
 
-### 1. Create the First Admin User
+### Option A: Use UserSeeder (Recommended)
+The project includes a `UserSeeder` that automatically creates roles and admin users.
+
+```bash
+php artisan db:seed --class=UserSeeder
+```
+
+*Expected output:*
+```
+Users created successfully!
+Admin: admin@lawndingpage.local / password
+Editor: editor@lawndingpage.local / password
+```
+
+**Verify it worked:**
+```bash
+php artisan tinker
+>>> \App\Models\User::all()->pluck('email', 'id');
+# Expected: [1 => "admin@lawndingpage.local", 2 => "editor@lawndingpage.local"]
+
+>>> \App\Models\User::find(1)->roles->pluck('name');
+# Expected: ["Owner"]
+```
+
+### Option B: Manual Setup (Alternative)
+If you prefer manual control or need custom credentials:
+
+**Step 1:** Create the first admin user:
 ```bash
 php artisan make:filament-user
 # Name: Admin
@@ -1405,7 +1774,7 @@ php artisan make:filament-user
 # Password: password (change in production!)
 ```
 
-### 2. Create Roles and Assign to Admin
+**Step 2:** Create roles and assign via Tinker:
 ```bash
 php artisan tinker
 ```
@@ -1425,6 +1794,13 @@ $admin->assignRole('Owner');
 exit
 ```
 
+**Verify:**
+```bash
+php artisan tinker
+>>> \App\Models\User::find(1)->hasRole('Owner');
+# Expected: true
+```
+
 ---
 
 ## Phase 10: Verification & Testing
@@ -1432,12 +1808,25 @@ exit
 Follow these steps to verify your backend is production-ready.
 
 ### 1. Start the Development Server
+
+**If using DDEV (Recommended):**
+```bash
+ddev start
+```
+*Navigate to:* `https://lawndingpage.ddev.site/admin`
+
+**If using php artisan serve:**
 ```bash
 php artisan serve
 ```
+*Navigate to:* `http://localhost:8000/admin`
 
 ### 2. Log Into the Admin Panel
-Navigate to `http://localhost:8000/admin` and log in with your credentials.
+Use the credentials from Phase 9:
+- **Email:** `admin@lawndingpage.local` (if using UserSeeder)
+- **Password:** `password`
+
+**If login fails:** Verify user exists with `php artisan tinker >>> \App\Models\User::all();`
 
 ### 3. Test Site Settings
 1. Click **"Site Settings"** in the sidebar
@@ -1651,6 +2040,118 @@ add_header Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe
 
 ## Troubleshooting Guide
 
+### Issue: "SQLSTATE[HY000]: no such column: blocks.id"
+**Cause:** Orbit schema is missing the `id` column definition.
+
+**Solution:** Add `$table->id();` as the first line in your model's `schema()` method:
+```php
+public static function schema(Blueprint $table): void
+{
+    $table->id(); // MUST be first
+    $table->string('type');
+    // ... other columns
+}
+```
+
+Then clear Orbit cache:
+```bash
+php artisan orbit:clear
+```
+
+### Issue: "Class 'Filament\Tables\Actions\EditAction' not found"
+**Cause:** In Filament v5.2, table actions moved from `Filament\Tables\Actions` to `Filament\Actions`.
+
+**Solution:** Update your imports:
+```php
+// ❌ WRONG
+use Filament\Tables\Actions\EditAction;
+
+// ✅ CORRECT
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+```
+
+### Issue: "SQLSTATE[23000]: NOT NULL constraint failed: blocks.type"
+**Cause:** Using `schema()` method in Resource instead of `form()`.
+
+**Solution:** Resources must use `form()` method:
+```php
+// ❌ WRONG
+public static function schema(Schema $schema): Schema
+
+// ✅ CORRECT
+public static function form(Schema $schema): Schema
+```
+
+### Issue: "foreach() argument must be of type array|object, string given" (FileUpload error)
+**Cause:** Two possible issues:
+1. Not using `$this->form->fill()` to populate form data
+2. Missing `->multiple(false)` on single-file uploads
+
+**Solution:**
+```php
+// In Page mount() method:
+// ❌ WRONG
+$this->data = $this->record->toArray();
+
+// ✅ CORRECT
+$this->form->fill($this->record->toArray());
+
+// In save() method:
+// ❌ WRONG
+$this->record->update($this->data);
+
+// ✅ CORRECT
+$data = $this->form->getState();
+$this->record->update($data);
+
+// In Resource form definition:
+Forms\FileUpload::make('logo_path')
+    ->multiple(false) // CRITICAL for single files
+    ->image()
+```
+
+### Issue: Editor/Owner roles not working - User can't create/edit/delete/reorder
+**Cause:** Either the role wasn't assigned, or the user session is cached without the role.
+
+**Solution:**
+```bash
+# 1. Verify the role exists
+php artisan tinker
+>>> \Spatie\Permission\Models\Role::all()->pluck('name');
+
+# 2. Assign the role to the user
+>>> \App\Models\User::find(2)->assignRole('Editor');
+
+# 3. Verify it was assigned
+>>> \App\Models\User::find(2)->roles->pluck('name');
+```
+
+**Then:** Log out and log back in to refresh the session.
+
+**Additional Check:** Ensure your Resource has all authorization methods:
+```php
+public static function canViewAny(): bool
+public static function canCreate(): bool
+public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+public static function canReorder(): bool // If using reorderable tables
+```
+
+### Issue: "Declaration must be compatible with Resource::canEdit()"
+**Cause:** Using specific model type (`Block $record`) instead of parent's generic type.
+
+**Solution:** Use `\Illuminate\Database\Eloquent\Model` type hint:
+```php
+// ❌ WRONG
+public static function canEdit(Block $record): bool
+
+// ✅ CORRECT
+public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+```
+
 ### Issue: "Class 'Orbit\Concerns\Orbital' not found"
 **Solution:**
 ```bash
@@ -1732,16 +2233,18 @@ lawndingpage/
 │   │   └── DetectOrphanedBlocks.php
 │   ├── Filament/
 │   │   └── Resources/
-│   │       ├── SiteResource.php
-│   │       ├── SiteResource/
-│   │       │   └── Pages/
-│   │       │       └── ManageSite.php  ← Standalone Page with InteractsWithForms
-│   │       ├── BlockResource.php       ← Uses BlockRegistry service
-│   │       └── BlockResource/
-│   │           └── Pages/
-│   │               ├── CreateBlock.php
-│   │               ├── EditBlock.php
-│   │               └── ListBlocks.php
+│   │       ├── Sites/
+│   │       │   ├── SiteResource.php
+│   │       │   └── SiteResource/
+│   │       │       └── Pages/
+│   │       │           └── ManageSite.php  ← Standalone Page with InteractsWithSchemas
+│   │       └── Blocks/
+│   │           ├── BlockResource.php       ← Uses BlockRegistry service
+│   │           └── BlockResource/
+│   │               └── Pages/
+│   │                   ├── CreateBlock.php
+│   │                   ├── EditBlock.php
+│   │                   └── ListBlocks.php
 │   ├── Models/
 │   │   ├── User.php              ← With HasRoles trait
 │   │   ├── Site.php              ← Orbit model with schema()
@@ -1765,15 +2268,16 @@ lawndingpage/
 │   └── views/
 │       └── filament/
 │           └── resources/
-│               └── site-resource/
-│                   └── pages/
-│                       └── manage-site.blade.php  ← Custom form page view
+│               └── sites/
+│                   └── site-resource/
+│                       └── pages/
+│                           └── manage-site.blade.php  ← Custom form page view
 ├── storage/
 │   └── orbit/
 │       ├── sites/
-│       │   └── *.md              ← Site settings as Markdown
+│       │   └── *.yml             ← Site settings as YAML (not Markdown)
 │       └── blocks/
-│           └── *.md              ← Blocks as Markdown (Git-tracked)
+│           └── *.yml             ← Blocks as YAML (Git-tracked)
 └── .env                          ← CACHE_DRIVER=file (local) or redis (prod)
 ```
 
@@ -1787,16 +2291,16 @@ For reproducible builds, here's the complete dependency list:
 {
     "require": {
         "php": "^8.2",
-        "laravel/framework": "^11.0",
+        "laravel/framework": "^12.0",
         "filament/filament": "^5.0",
         "ryangjchandler/orbit": "^1.4.1",
-        "spatie/laravel-permission": "^6.0",
+        "spatie/laravel-permission": "^7.2",
         "pboivin/filament-peek": "^4.0"
     },
     "require-dev": {
-        "laravel/pint": "^1.13",
-        "nunomaduro/collision": "^8.1",
-        "phpunit/phpunit": "^11.0"
+        "laravel/pint": "^1.24",
+        "nunomaduro/collision": "^8.6",
+        "phpunit/phpunit": "^11.5"
     }
 }
 ```
@@ -1826,7 +2330,7 @@ You've successfully implemented:
 ✅ Filament v5 admin panel (v5.2.1+ current stable)
 ✅ Orbit v1.4.1 flat-file content storage with `schema()` methods
 ✅ Filament Peek ^4.0 (Filament v5 compatible)
-✅ **Site singleton using standalone Page with InteractsWithForms (not ManageRecords)**
+✅ **Site singleton using standalone Page with InteractsWithSchemas (not ManageRecords)**
 ✅ **BlockRegistry service (decoupled from Filament resources)**
 ✅ Block model with JSON data casting and `isOrphaned()` detection
 ✅ **BlockContract interface with `getType()` as single source of truth**
@@ -1859,7 +2363,7 @@ You've successfully implemented:
 10. ✅ Command return code documented
 
 **Cycle 3 Issues:**
-11. ✅ ManageSite is now standalone Page with InteractsWithForms (not ManageRecords)
+11. ✅ ManageSite is now standalone Page with InteractsWithSchemas (not ManageRecords)
 12. ✅ BlockRegistry extracted to app/Services (no model-to-resource coupling)
 13. ✅ Package versions updated (Orbit ^1.4.1, Filament Peek ^4.0)
 
